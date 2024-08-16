@@ -1,18 +1,22 @@
+import datetime
 import time
-import numpy as np
-import saverloader
-from nets.pips2 import Pips
-import utils.improc
-from utils.basic import print_, print_stats
-import torch
-from tensorboardX import SummaryWriter
-import torch.nn.functional as F
-from fire import Fire
+import os
 import sys
-import cv2
 from pathlib import Path
 
-def read_mp4(fn):
+import cv2
+import numpy as np
+import torch.nn.functional as F
+import saverloader
+import torch
+from fire import Fire
+from nets.pips2 import Pips
+from tensorboardX import SummaryWriter
+
+import utils.improc
+from utils.basic import print_, print_stats
+
+def read_mp4(fn) -> list[np.ndarray]:
     vidcap = cv2.VideoCapture(fn)
     frames = []
     while(vidcap.isOpened()):
@@ -23,7 +27,7 @@ def read_mp4(fn):
     vidcap.release()
     return frames
 
-def run_model(model, rgbs, S_max=128, N=64, iters=16, sw=None):
+def run_model(model: Pips, rgbs: list[np.ndarray], S_max=128, N=64, iters=16, sw=None):
     rgbs = rgbs.cuda().float() # B, S, C, H, W
 
     B, S, C, H, W = rgbs.shape
@@ -34,7 +38,7 @@ def run_model(model, rgbs, S_max=128, N=64, iters=16, sw=None):
     grid_y, grid_x = utils.basic.meshgrid2d(B, N_, N_, stack=False, norm=False, device='cuda')
     grid_y = 8 + grid_y.reshape(B, -1)/float(N_-1) * (H-16)
     grid_x = 8 + grid_x.reshape(B, -1)/float(N_-1) * (W-16)
-    xy0 = torch.stack([grid_x, grid_y], dim=-1) # B, N_*N_, 2
+    xy0 = torch.stack([grid_x, grid_y], dim=-1) # B, N_* N_, 2
     _, S, C, H, W = rgbs.shape
 
     # zero-vel init
@@ -45,12 +49,18 @@ def run_model(model, rgbs, S_max=128, N=64, iters=16, sw=None):
     preds, preds_anim, _, _ = model(trajs_e, rgbs, iters=iters, feat_init=None, beautify=True)
     trajs_e = preds[-1]
 
-    iter_time = time.time()-iter_start_time
-    print('inference time: %.2f seconds (%.1f fps)' % (iter_time, S/iter_time))
+    iter_time = time.time() - iter_start_time
+    print(f'inference time: {iter_time:.2f} seconds ({S/iter_time:.1f} fps)')
 
     if sw is not None and sw.save_this:
         rgbs_prep = utils.improc.preprocess_color(rgbs)
-        sw.summ_traj2ds_on_rgbs('outputs/trajs_on_rgbs', trajs_e[0:1], utils.improc.preprocess_color(rgbs[0:1]), cmap='hot', linewidth=1, show_dots=False)
+        sw.summ_traj2ds_on_rgbs(
+            name='outputs/trajs_on_rgbs', 
+            trajs=trajs_e[0:1], 
+            rgbs=utils.improc.preprocess_color(rgbs[0:1]), 
+            cmap='hot', linewidth=1, show_dots=False,
+        )
+    
     return trajs_e
 
 
@@ -75,40 +85,39 @@ def main(
     
     exp_name = 'de00' # copy from dev repo
 
-    print('filename', filename)
+    print(f'{filename=}')
     name = Path(filename).stem
-    print('name', name)
+    # print('name', name)
     
     rgbs = read_mp4(filename)
-    rgbs = np.stack(rgbs, axis=0) # S,H,W,3
-    rgbs = rgbs[:,:,:,::-1].copy() # BGR->RGB
+    rgbs = np.stack(rgbs, axis=0)  # nframes,H,W,3
+    rgbs = rgbs[:,:,:,::-1].copy()  # BGR->RGB
     rgbs = rgbs[::timestride]
-    S_here,H,W,C = rgbs.shape
-    print('rgbs', rgbs.shape)
+    nframes, H, W, C = rgbs.shape
+    print(f'{rgbs.shape=}')
 
     # autogen a name
     model_name = "%s_%d_%d_%s" % (name, S, N, exp_name)
-    import datetime
+    
     model_date = datetime.datetime.now().strftime('%H:%M:%S')
     model_name = model_name + '_' + model_date
-    print('model_name', model_name)
+    print(f'{model_name=}')
     
     log_dir = 'logs_demo'
     writer_t = SummaryWriter(log_dir + '/' + model_name + '/t', max_queue=10, flush_secs=60)
 
-    global_step = 0
-
     model = Pips(stride=8).cuda()
     parameters = list(model.parameters())
-    if init_dir:
+    if init_dir and os.path.exists(init_dir):
         _ = saverloader.load(init_dir, model)
-    global_step = 0
     model.eval()
 
-    idx = list(range(0, max(S_here-S,1), S))
+    idx = list(range(0, max(nframes - S, 1), S))
     if max_iters:
         idx = idx[:max_iters]
+    print(f'{idx=}')
     
+    global_step = 0
     for si in idx:
         global_step += 1
         
@@ -127,15 +136,14 @@ def main(
         rgb_seq = F.interpolate(rgb_seq, image_size, mode='bilinear').unsqueeze(0) # 1,S,3,H,W
         
         with torch.no_grad():
-            trajs_e = run_model(model, rgb_seq, S_max=S, N=N, iters=iters, sw=sw_t)
+            _trajs_e = run_model(model, rgb_seq, S_max=S, N=N, iters=iters, sw=sw_t)
 
         iter_time = time.time()-iter_start_time
         
-        print('%s; step %06d/%d; itime %.2f' % (
-            model_name, global_step, max_iters, iter_time))
+        print(f'{model_name=}; step {global_step=:06}/{max_iters}; {iter_time=:.2f}s')
         
-            
     writer_t.close()
+            
 
 if __name__ == '__main__':
     Fire(main)
