@@ -16,6 +16,9 @@ from tensorboardX import SummaryWriter
 import utils.improc
 from utils.basic import print_, print_stats
 
+from track_video import get_video_mask
+
+
 def read_mp4(fn) -> list[np.ndarray]:
     vidcap = cv2.VideoCapture(fn)
     frames = []
@@ -27,7 +30,8 @@ def read_mp4(fn) -> list[np.ndarray]:
     vidcap.release()
     return frames
 
-def run_model(model: Pips, rgbs: list[np.ndarray], S_max=128, N=64, iters=16, sw=None):
+
+def run_model(model: Pips, rgbs: list[np.ndarray], S_max=128, N=64, iters=16, mask=None, sw=None):
     rgbs = rgbs.cuda().float() # B, S, C, H, W
 
     B, S, C, H, W = rgbs.shape
@@ -39,7 +43,9 @@ def run_model(model: Pips, rgbs: list[np.ndarray], S_max=128, N=64, iters=16, sw
     grid_y = 8 + grid_y.reshape(B, -1)/float(N_-1) * (H-16)
     grid_x = 8 + grid_x.reshape(B, -1)/float(N_-1) * (W-16)
     xy0 = torch.stack([grid_x, grid_y], dim=-1) # B, N_* N_, 2
-    _, S, C, H, W = rgbs.shape
+    print(grid_x.shape, grid_y.shape)
+    import ipdb; ipdb.set_trace()
+    # _, S, C, H, W = rgbs.shape
 
     # zero-vel init
     trajs_e = xy0.unsqueeze(1).repeat(1,S,1,1)
@@ -88,6 +94,9 @@ def main(
     print(f'{filename=}')
     name = Path(filename).stem
     # print('name', name)
+
+    # mask = get_video_mask(filename, debug=False)
+    mask = None
     
     rgbs = read_mp4(filename)
     rgbs = np.stack(rgbs, axis=0)  # nframes,H,W,3
@@ -136,7 +145,7 @@ def main(
         rgb_seq = F.interpolate(rgb_seq, image_size, mode='bilinear').unsqueeze(0) # 1,S,3,H,W
         
         with torch.no_grad():
-            _trajs_e = run_model(model, rgb_seq, S_max=S, N=N, iters=iters, sw=sw_t)
+            _trajs_e = run_model(model, rgb_seq, S_max=S, N=N, iters=iters, mask=mask, sw=sw_t)
 
         iter_time = time.time()-iter_start_time
         
