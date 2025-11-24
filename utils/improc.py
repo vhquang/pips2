@@ -1,13 +1,21 @@
+from __future__ import annotations
+
+import typing
+
 import torch
 import numpy as np
 import utils.basic
-from sklearn.decomposition import PCA
-from matplotlib import cm
 import matplotlib.pyplot as plt
 import cv2
 import torch.nn.functional as F
 import torchvision
+from sklearn.decomposition import PCA
+from matplotlib import cm
+
 EPS = 1e-6
+
+if typing.TYPE_CHECKING:
+    from tensorboardX import SummaryWriter
 
 from skimage.color import (
     rgb2lab, rgb2yuv, rgb2ycbcr, lab2rgb, yuv2rgb, ycbcr2rgb,
@@ -460,7 +468,7 @@ def get_n_colors(N, sequential=False):
     return label_colors
 
 class Summ_writer(object):
-    def __init__(self, writer, global_step, log_freq=10, fps=8, scalar_freq=100, just_gif=False):
+    def __init__(self, writer: SummaryWriter, global_step: int, log_freq=10, fps=8, scalar_freq=100, just_gif=False):
         self.writer = writer
         self.global_step = global_step
         self.log_freq = log_freq
@@ -471,10 +479,10 @@ class Summ_writer(object):
         self.scalar_freq = max(scalar_freq,1)
         
 
-    def summ_gif(self, name, tensor, blacken_zeros=False):
+    def summ_gif(self, name, tensor: torch.Tensor, blacken_zeros=False) -> torch.Tensor:
         # tensor should be in B x S x C x H x W
         
-        assert tensor.dtype in {torch.uint8,torch.float32}
+        assert tensor.dtype in {torch.uint8, torch.float32}
         shape = list(tensor.shape)
 
         if tensor.dtype == torch.float32:
